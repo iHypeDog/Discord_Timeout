@@ -12,13 +12,28 @@ import {
   Events,
 } from "discord.js";
 import "dotenv/config";
+import express from "express"; // Importa o Express
 import config from "./config.json" with { type: "json" };
 const { reportChannelId } = config;
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds], // apenas necessário
+  intents: [GatewayIntentBits.Guilds],
 });
 
+// --- EXPRESS SETUP ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Endpoint simples para uptime
+app.get("/", (req, res) => {
+  res.send("🤖 Bot ativo!");
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 Servidor HTTP ativo na porta ${PORT}`);
+});
+
+// --- DISCORD BOT ---
 client.once(Events.ClientReady, () => {
   console.log(`🤖 Bot ligado como ${client.user.tag}`);
 });
@@ -29,7 +44,7 @@ client.on(Events.InteractionCreate, async interaction => {
     if (interaction.isChatInputCommand() && interaction.commandName === "painel-timeout") {
       const embed = new EmbedBuilder()
         .setTitle("Painel de Timeout")
-        .setDescription("Cliquem no botão para dar timeout.")
+        .setDescription("Clique abaixo para aplicar um timeout e enviar um relatório.")
         .setColor("Grey");
 
       const button = new ButtonBuilder()
@@ -68,7 +83,7 @@ client.on(Events.InteractionCreate, async interaction => {
       });
     }
 
-    // Select menu → modal com ID, relatório e link do clip
+    // Select menu → modal com ID, relatório e clip
     if (interaction.isStringSelectMenu() && interaction.customId === "duracao_timeout") {
       const duracao = interaction.values[0];
 
