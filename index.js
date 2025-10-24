@@ -12,35 +12,32 @@ import {
   Events,
 } from "discord.js";
 import "dotenv/config";
-import express from "express"; // Importa o Express
+import express from "express";
 import config from "./config.json" with { type: "json" };
 const { reportChannelId } = config;
 
+// --- DISCORD CLIENT ---
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-// --- EXPRESS SETUP ---
+// --- EXPRESS SERVER ---
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Endpoint simples para uptime
-app.get("/", (req, res) => {
-  res.send("🤖 Bot ativo!");
-});
+app.get("/", (req, res) => res.send("🤖 Bot ativo!"));
 
-app.listen(PORT, () => {
-  console.log(`🌐 Servidor HTTP ativo na porta ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🌐 Servidor HTTP ativo na porta ${PORT}`));
 
-// --- DISCORD BOT ---
+// --- BOT READY ---
 client.once(Events.ClientReady, () => {
   console.log(`🤖 Bot ligado como ${client.user.tag}`);
 });
 
+// --- INTERACTIONS ---
 client.on(Events.InteractionCreate, async interaction => {
   try {
-    // Slash command
+    // --- Slash Command ---
     if (interaction.isChatInputCommand() && interaction.commandName === "painel-timeout") {
       const embed = new EmbedBuilder()
         .setTitle("Painel de Timeout")
@@ -54,13 +51,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const row = new ActionRowBuilder().addComponents(button);
 
-      await interaction.reply({
-        embeds: [embed],
-        components: [row],
-      });
+      return interaction.reply({ embeds: [embed], components: [row] });
     }
 
-    // Botão clicado → select menu duração
+    // --- Botão clicado → Select Menu duração ---
     if (interaction.isButton() && interaction.customId === "abrir_modal_timeout") {
       const selectMenu = new StringSelectMenuBuilder()
         .setCustomId("duracao_timeout")
@@ -76,14 +70,14 @@ client.on(Events.InteractionCreate, async interaction => {
 
       const row = new ActionRowBuilder().addComponents(selectMenu);
 
-      await interaction.reply({
+      return interaction.reply({
         content: "Escolhe a duração do timeout:",
         components: [row],
         ephemeral: true,
       });
     }
 
-    // Select menu → modal com ID, relatório e clip
+    // --- Select Menu → Modal ---
     if (interaction.isStringSelectMenu() && interaction.customId === "duracao_timeout") {
       const duracao = interaction.values[0];
 
@@ -115,10 +109,10 @@ client.on(Events.InteractionCreate, async interaction => {
         new ActionRowBuilder().addComponents(clipInput)
       );
 
-      await interaction.showModal(modal);
+      return interaction.showModal(modal);
     }
 
-    // Modal submetido → aplica timeout e envia relatório
+    // --- Modal submetido ---
     if (interaction.isModalSubmit() && interaction.customId.startsWith("modal_timeout_")) {
       const duracao = parseInt(interaction.customId.split("_").pop());
       const membroId = interaction.fields.getTextInputValue("membro_id");
@@ -126,29 +120,28 @@ client.on(Events.InteractionCreate, async interaction => {
       const clip = interaction.fields.getTextInputValue("clip_medal");
 
       const guild = interaction.guild;
-      if (!guild) return;
+      if (!guild)
+        return interaction.reply({ content: "⚠️ Este comando só funciona em servidores.", ephemeral: true });
 
       const member = await guild.members.fetch(membroId).catch(() => null);
       if (!member)
         return interaction.reply({ content: "⚠️ Membro não encontrado pelo ID.", ephemeral: true });
 
-      // Aplica timeout
+      // --- Aplica Timeout ---
       try {
         await member.timeout(duracao * 1000, `Aplicado via painel: ${relatorio}`);
       } catch (err) {
         console.error(err);
-        await interaction.followUp({
+        return interaction.reply({
           content: "❌ Falha ao aplicar timeout. Verifica permissões e hierarquia do bot.",
-          ephemeral: true
+          ephemeral: true,
         });
-        return;
       }
 
-      // Envia relatório
-      const canal = await client.channels.fetch(reportChannelId);
-      if (!canal) {
+      // --- Envia relatório ---
+      const canal = await client.channels.fetch(reportChannelId).catch(() => null);
+      if (!canal)
         return interaction.reply({ content: "⚠️ Canal de relatórios não encontrado.", ephemeral: true });
-      }
 
       const embed = new EmbedBuilder()
         .setTitle("🕒 Relatório de Timeout")
@@ -161,13 +154,11 @@ client.on(Events.InteractionCreate, async interaction => {
         )
         .setTimestamp();
 
-      if (clip) {
-        embed.addFields({ name: "Clip Medal", value: clip });
-      }
+      if (clip) embed.addFields({ name: "Clip Medal", value: clip });
 
       await canal.send({ embeds: [embed] });
 
-      await interaction.reply({
+      return interaction.reply({
         content: `✅ Timeout de ${duracao} segundos aplicado a ${member}. Relatório enviado!`,
         ephemeral: true,
       });
@@ -175,7 +166,10 @@ client.on(Events.InteractionCreate, async interaction => {
 
   } catch (err) {
     console.error(err);
+    if (!interaction.replied)
+      interaction.reply({ content: "❌ Ocorreu um erro inesperado.", ephemeral: true });
   }
 });
 
+// --- LOGIN ---
 client.login(process.env.TOKEN);
