@@ -144,7 +144,7 @@ client.on(Events.InteractionCreate, async interaction => {
         return interaction.reply({ content: "⚠️ Canal de relatórios não encontrado.", ephemeral: true });
 
       const embed = new EmbedBuilder()
-        .setTitle("🕒 Relatório de Timeout")
+        .setTitle("Relatório de Timeout")
         .setColor("DarkGrey")
         .addFields(
           { name: "Autor", value: `${interaction.user}`, inline: true },
@@ -152,7 +152,8 @@ client.on(Events.InteractionCreate, async interaction => {
           { name: "Duração", value: `${duracao} segundos`, inline: true },
           { name: "Relatório", value: relatorio }
         )
-        .setTimestamp();
+        .setTimestamp()
+        .setFooter("Desenvolvido por slow.tek");
 
       if (clip) embed.addFields({ name: "Clip Medal", value: clip });
 
