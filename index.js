@@ -7,11 +7,31 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } from "discord.js";
 import "dotenv/config";
 import express from "express";
+import fs from "fs";
 import config from "./config.json" with { type: "json" };
-const { reportChannelId } = config; // Mantido caso precises no futuro
+
+const { 
+  reportChannelId, 
+  godRoleId = "1421249335877832816", 
+  logsChannelId = "1431347167997726730" 
+} = config;
+
+// --- ARMAZENAMENTO DE CACHAÇOS PENDENTES ---
+const pendingsFile = "./pendings.json";
+let pendings = {};
+
+if (fs.existsSync(pendingsFile)) {
+  pendings = JSON.parse(fs.readFileSync(pendingsFile, "utf8"));
+}
+
+function savePendings() {
+  fs.writeFileSync(pendingsFile, JSON.stringify(pendings, null, 2));
+}
 
 // --- DISCORD CLIENT ---
 const client = new Client({
@@ -84,40 +104,217 @@ client.on(Events.InteractionCreate, async interaction => {
       await interaction.showModal(modal);
     }
 
-    // --- Submissão do Modal ---
-    if (interaction.isModalSubmit() && interaction.customId === "aviso_modal") {
-      const titulo = interaction.fields.getTextInputValue("titulo");
-      const descricao = interaction.fields.getTextInputValue("descricao") || null;
-      const corHex = interaction.fields.getTextInputValue("cor") || "#5865F2";
-      const imagem = interaction.fields.getTextInputValue("imagem") || null;
-      const thumbnail = interaction.fields.getTextInputValue("thumbnail") || null;
-
-      // Converte cor hex para inteiro
-      let corInt = 0x5865F2; // padrão Discord
-      try {
-        corInt = parseInt(corHex.replace("#", ""), 16);
-      } catch {}
+    // --- Comando /cachacos ---
+    if (interaction.isChatInputCommand() && interaction.commandName === "cachacos") {
+      if (!interaction.member.roles.cache.has(godRoleId)) {
+        return await interaction.reply({ content: "❌ Você não tem permissão para usar este comando.", ephemeral: true });
+      }
 
       const embed = new EmbedBuilder()
-        .setTitle(titulo)
-        .setDescription(descricao)
-        .setColor(corInt)
-        .setTimestamp()
-        .setFooter({
-          text: `Aviso enviado por ${interaction.user.tag}`,
-          iconURL: interaction.user.displayAvatarURL(),
-        });
+        .setTitle("Gerenciar Cachaços Pendentes")
+        .setDescription("Escolha uma ação abaixo:")
+        .setColor(0x5865F2);
 
-      if (imagem) embed.setImage(imagem);
-      if (thumbnail) embed.setThumbnail(thumbnail);
+      const addButton = new ButtonBuilder()
+        .setCustomId("add_cachacos")
+        .setLabel("Adicionar Pendentes")
+        .setStyle(ButtonStyle.Primary);
 
-      // Envia a embed no canal onde o comando foi usado
-      await interaction.reply({ embeds: [embed] });
+      const removeButton = new ButtonBuilder()
+        .setCustomId("remove_cachacos")
+        .setLabel("Remover Pendentes")
+        .setStyle(ButtonStyle.Danger);
 
-      // Alternativa: enviar num canal fixo (ex: canal de avisos)
-      // const canalAvisos = client.channels.cache.get("ID_DO_CANAL");
-      // if (canalAvisos) await canalAvisos.send({ embeds: [embed] });
-      // await interaction.reply({ content: "✅ Aviso enviado com sucesso!", ephemeral: true });
+      const row = new ActionRowBuilder().addComponents(addButton, removeButton);
+
+      await interaction.reply({ embeds: [embed], components: [row] });
+    }
+
+    // --- Botões ---
+    if (interaction.isButton()) {
+      if (!interaction.member.roles.cache.has(godRoleId)) {
+        return await interaction.reply({ content: "❌ Você não tem permissão para esta ação.", ephemeral: true });
+      }
+
+      if (interaction.customId === "add_cachacos") {
+        const modal = new ModalBuilder()
+          .setCustomId("add_modal")
+          .setTitle("Adicionar Cachaços Pendentes");
+
+        const userIdInput = new TextInputBuilder()
+          .setCustomId("user_id")
+          .setLabel("ID do Usuário")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const regrasInput = new TextInputBuilder()
+          .setCustomId("regras")
+          .setLabel("Regras Descumpridas")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+
+        const quantidadeInput = new TextInputBuilder()
+          .setCustomId("quantidade")
+          .setLabel("Quantidade de Cachaços")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const clipInput = new TextInputBuilder()
+          .setCustomId("clip")
+          .setLabel("URL do Clipe (opcional)")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(false);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(userIdInput),
+          new ActionRowBuilder().addComponents(regrasInput),
+          new ActionRowBuilder().addComponents(quantidadeInput),
+          new ActionRowBuilder().addComponents(clipInput)
+        );
+
+        await interaction.showModal(modal);
+      } else if (interaction.customId === "remove_cachacos") {
+        const modal = new ModalBuilder()
+          .setCustomId("remove_modal")
+          .setTitle("Remover Cachaços Pendentes");
+
+        const userIdInput = new TextInputBuilder()
+          .setCustomId("user_id")
+          .setLabel("ID do Usuário")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        const quantidadeInput = new TextInputBuilder()
+          .setCustomId("quantidade")
+          .setLabel("Quantidade a Remover")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(
+          new ActionRowBuilder().addComponents(userIdInput),
+          new ActionRowBuilder().addComponents(quantidadeInput)
+        );
+
+        await interaction.showModal(modal);
+      }
+    }
+
+    // --- Submissão de Modals ---
+    if (interaction.isModalSubmit()) {
+      // Modal do /aviso (mantido igual)
+      if (interaction.customId === "aviso_modal") {
+        const titulo = interaction.fields.getTextInputValue("titulo");
+        const descricao = interaction.fields.getTextInputValue("descricao") || null;
+        const corHex = interaction.fields.getTextInputValue("cor") || "#5865F2";
+        const imagem = interaction.fields.getTextInputValue("imagem") || null;
+        const thumbnail = interaction.fields.getTextInputValue("thumbnail") || null;
+
+        let corInt = 0x5865F2;
+        try {
+          corInt = parseInt(corHex.replace("#", ""), 16);
+        } catch {}
+
+        const embed = new EmbedBuilder()
+          .setTitle(titulo)
+          .setDescription(descricao)
+          .setColor(corInt)
+          .setTimestamp()
+          .setFooter({
+            text: `Aviso enviado por ${interaction.user.tag}`,
+            iconURL: interaction.user.displayAvatarURL(),
+          });
+
+        if (imagem) embed.setImage(imagem);
+        if (thumbnail) embed.setThumbnail(thumbnail);
+
+        await interaction.reply({ embeds: [embed] });
+      }
+
+      // Adicionar cachaços
+      else if (interaction.customId === "add_modal") {
+        const userId = interaction.fields.getTextInputValue("user_id").trim();
+        const regras = interaction.fields.getTextInputValue("regras");
+        const quantStr = interaction.fields.getTextInputValue("quantidade");
+        const clip = interaction.fields.getTextInputValue("clip") || "Nenhum";
+
+        const quantidade = parseInt(quantStr);
+        if (isNaN(quantidade) || quantidade <= 0) {
+          return await interaction.reply({ content: "❌ Quantidade inválida.", ephemeral: true });
+        }
+
+        if (!pendings[userId]) pendings[userId] = 0;
+        pendings[userId] += quantidade;
+        const total = pendings[userId];
+        savePendings();
+
+        const logEmbed = new EmbedBuilder()
+          .setTitle("Cachaços Pendentes Adicionados")
+          .setColor(0xFF0000)
+          .addFields(
+            { name: "Usuário", value: `<@${userId}> (${userId})`, inline: true },
+            { name: "Quantidade Adicionada", value: quantidade.toString(), inline: true },
+            { name: "Total Pendentes", value: total.toString(), inline: true },
+            { name: "Regras Descumpridas", value: regras },
+            { name: "Clipe", value: clip === "Nenhum" ? "Nenhum" : clip }
+          )
+          .setFooter({ text: `Ação por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
+          .setTimestamp();
+
+        const logsChannel = client.channels.cache.get(logsChannelId);
+        if (logsChannel) await logsChannel.send({ embeds: [logEmbed] });
+
+        try {
+          const user = await client.users.fetch(userId);
+          await user.send({ embeds: [logEmbed] });
+        } catch (err) {
+          console.error("Erro ao enviar DM ao usuário:", err);
+        }
+
+        await interaction.reply({ content: "✅ Cachaços adicionados com sucesso!", ephemeral: true });
+      }
+
+      // Remover cachaços
+      else if (interaction.customId === "remove_modal") {
+        const userId = interaction.fields.getTextInputValue("user_id").trim();
+        const quantStr = interaction.fields.getTextInputValue("quantidade");
+
+        const quantidade = parseInt(quantStr);
+        if (isNaN(quantidade) || quantidade <= 0) {
+          return await interaction.reply({ content: "❌ Quantidade inválida.", ephemeral: true });
+        }
+
+        if (!pendings[userId] || pendings[userId] < quantidade) {
+          return await interaction.reply({ content: "❌ O usuário não tem cachaços suficientes para remover.", ephemeral: true });
+        }
+
+        pendings[userId] -= quantidade;
+        const total = pendings[userId];
+        if (total <= 0) delete pendings[userId];
+        savePendings();
+
+        const logEmbed = new EmbedBuilder()
+          .setTitle("Cachaços Pendentes Removidos")
+          .setColor(0x00FF00)
+          .addFields(
+            { name: "Usuário", value: `<@${userId}> (${userId})`, inline: true },
+            { name: "Quantidade Removida", value: quantidade.toString(), inline: true },
+            { name: "Total Pendentes", value: total.toString(), inline: true }
+          )
+          .setFooter({ text: `Ação por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
+          .setTimestamp();
+
+        const logsChannel = client.channels.cache.get(logsChannelId);
+        if (logsChannel) await logsChannel.send({ embeds: [logEmbed] });
+
+        try {
+          const user = await client.users.fetch(userId);
+          await user.send({ embeds: [logEmbed] });
+        } catch (err) {
+          console.error("Erro ao enviar DM ao usuário:", err);
+        }
+
+        await interaction.reply({ content: "✅ Cachaços removidos com sucesso!", ephemeral: true });
+      }
     }
 
   } catch (err) {
