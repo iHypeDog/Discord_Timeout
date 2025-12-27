@@ -21,6 +21,9 @@ const {
   logsChannelId = "1431347167997726730" 
 } = config;
 
+// Cor padrão para todas as embeds públicas do bot
+const PUBLIC_EMBED_COLOR = 0x40ff73; // #40ff73
+
 // --- ARMAZENAMENTO DE CACHAÇOS PENDENTES ---
 const pendingsFile = "./pendings.json";
 let pendings = {};
@@ -76,7 +79,7 @@ client.on(Events.InteractionCreate, async interaction => {
       const corInput = new TextInputBuilder()
         .setCustomId("cor")
         .setLabel("Cor em hex (ex: #ff0000)")
-        .setPlaceholder("#5865F2 (padrão do Discord)")
+        .setPlaceholder("#40ff73")
         .setStyle(TextInputStyle.Short)
         .setMaxLength(7)
         .setRequired(false);
@@ -102,6 +105,7 @@ client.on(Events.InteractionCreate, async interaction => {
       );
 
       await interaction.showModal(modal);
+      return;
     }
 
     // --- Comando /cachacos ---
@@ -113,7 +117,7 @@ client.on(Events.InteractionCreate, async interaction => {
       const embed = new EmbedBuilder()
         .setTitle("Gerenciar Cachaços Pendentes")
         .setDescription("Escolha uma ação abaixo:")
-        .setColor(0x5865F2);
+        .setColor(PUBLIC_EMBED_COLOR);
 
       const addButton = new ButtonBuilder()
         .setCustomId("add_cachacos")
@@ -125,9 +129,15 @@ client.on(Events.InteractionCreate, async interaction => {
         .setLabel("Remover Pendentes")
         .setStyle(ButtonStyle.Danger);
 
-      const row = new ActionRowBuilder().addComponents(addButton, removeButton);
+      const checkButton = new ButtonBuilder()
+        .setCustomId("check_cachacos")
+        .setLabel("Consultar Pendentes")
+        .setStyle(ButtonStyle.Secondary);
 
-      await interaction.reply({ embeds: [embed], components: [row] });
+      const row = new ActionRowBuilder().addComponents(addButton, removeButton, checkButton);
+
+      await interaction.reply({ embeds: [embed], components: [row], ephemeral: false });
+      return;
     }
 
     // --- Botões ---
@@ -173,7 +183,9 @@ client.on(Events.InteractionCreate, async interaction => {
         );
 
         await interaction.showModal(modal);
-      } else if (interaction.customId === "remove_cachacos") {
+      }
+
+      else if (interaction.customId === "remove_cachacos") {
         const modal = new ModalBuilder()
           .setCustomId("remove_modal")
           .setTitle("Remover Cachaços Pendentes");
@@ -197,19 +209,36 @@ client.on(Events.InteractionCreate, async interaction => {
 
         await interaction.showModal(modal);
       }
+
+      else if (interaction.customId === "check_cachacos") {
+        const modal = new ModalBuilder()
+          .setCustomId("check_modal")
+          .setTitle("Consultar Cachaços Pendentes");
+
+        const userIdInput = new TextInputBuilder()
+          .setCustomId("user_id")
+          .setLabel("ID do Usuário")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
+        modal.addComponents(new ActionRowBuilder().addComponents(userIdInput));
+
+        await interaction.showModal(modal);
+      }
+      return;
     }
 
     // --- Submissão de Modals ---
     if (interaction.isModalSubmit()) {
-      // Modal do /aviso (mantido igual)
+      // Modal do /aviso
       if (interaction.customId === "aviso_modal") {
         const titulo = interaction.fields.getTextInputValue("titulo");
         const descricao = interaction.fields.getTextInputValue("descricao") || null;
-        const corHex = interaction.fields.getTextInputValue("cor") || "#5865F2";
+        const corHex = interaction.fields.getTextInputValue("cor") || "#40ff73";
         const imagem = interaction.fields.getTextInputValue("imagem") || null;
         const thumbnail = interaction.fields.getTextInputValue("thumbnail") || null;
 
-        let corInt = 0x5865F2;
+        let corInt = PUBLIC_EMBED_COLOR;
         try {
           corInt = parseInt(corHex.replace("#", ""), 16);
         } catch {}
@@ -228,6 +257,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (thumbnail) embed.setThumbnail(thumbnail);
 
         await interaction.reply({ embeds: [embed] });
+        return;
       }
 
       // Adicionar cachaços
@@ -247,9 +277,10 @@ client.on(Events.InteractionCreate, async interaction => {
         const total = pendings[userId];
         savePendings();
 
+        // Embed para logs (público no canal de logs) → cor #40ff73
         const logEmbed = new EmbedBuilder()
           .setTitle("Cachaços Pendentes Adicionados")
-          .setColor(0xFF0000)
+          .setColor(PUBLIC_EMBED_COLOR)
           .addFields(
             { name: "Usuário", value: `<@${userId}> (${userId})`, inline: true },
             { name: "Quantidade Adicionada", value: quantidade.toString(), inline: true },
@@ -260,17 +291,31 @@ client.on(Events.InteractionCreate, async interaction => {
           .setFooter({ text: `Ação por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
           .setTimestamp();
 
+        // Embed DM (privado) → mantém vermelho para destaque
+        const dmEmbed = new EmbedBuilder()
+          .setTitle("Você Recebeu Cachaços Pendentes")
+          .setColor(0xFF0000)
+          .addFields(
+            { name: "Quantidade", value: quantidade.toString(), inline: true },
+            { name: "Total Pendentes", value: total.toString(), inline: true },
+            { name: "Motivo", value: regras },
+            { name: "Clipe", value: clip === "Nenhum" ? "Nenhum" : clip }
+          )
+          .setFooter({ text: "Ação registrada pelos Gods" })
+          .setTimestamp();
+
         const logsChannel = client.channels.cache.get(logsChannelId);
         if (logsChannel) await logsChannel.send({ embeds: [logEmbed] });
 
         try {
           const user = await client.users.fetch(userId);
-          await user.send({ embeds: [logEmbed] });
+          await user.send({ embeds: [dmEmbed] });
         } catch (err) {
-          console.error("Erro ao enviar DM ao usuário:", err);
+          console.error("Erro ao enviar DM:", err);
         }
 
         await interaction.reply({ content: "✅ Cachaços adicionados com sucesso!", ephemeral: true });
+        return;
       }
 
       // Remover cachaços
@@ -292,9 +337,10 @@ client.on(Events.InteractionCreate, async interaction => {
         if (total <= 0) delete pendings[userId];
         savePendings();
 
+        // Embed para logs (público) → cor #40ff73
         const logEmbed = new EmbedBuilder()
           .setTitle("Cachaços Pendentes Removidos")
-          .setColor(0x00FF00)
+          .setColor(PUBLIC_EMBED_COLOR)
           .addFields(
             { name: "Usuário", value: `<@${userId}> (${userId})`, inline: true },
             { name: "Quantidade Removida", value: quantidade.toString(), inline: true },
@@ -303,17 +349,49 @@ client.on(Events.InteractionCreate, async interaction => {
           .setFooter({ text: `Ação por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
           .setTimestamp();
 
+        // Embed DM (privado) → verde claro para positivo
+        const dmEmbed = new EmbedBuilder()
+          .setTitle("Cachaços Pendentes Removidos")
+          .setColor(0x00FF00)
+          .addFields(
+            { name: "Quantidade Removida", value: quantidade.toString(), inline: true },
+            { name: "Total Pendentes Agora", value: total.toString(), inline: true }
+          )
+          .setFooter({ text: "Ação realizada pelos Gods" })
+          .setTimestamp();
+
         const logsChannel = client.channels.cache.get(logsChannelId);
         if (logsChannel) await logsChannel.send({ embeds: [logEmbed] });
 
         try {
           const user = await client.users.fetch(userId);
-          await user.send({ embeds: [logEmbed] });
+          await user.send({ embeds: [dmEmbed] });
         } catch (err) {
-          console.error("Erro ao enviar DM ao usuário:", err);
+          console.error("Erro ao enviar DM:", err);
         }
 
         await interaction.reply({ content: "✅ Cachaços removidos com sucesso!", ephemeral: true });
+        return;
+      }
+
+      // Consultar cachaços
+      else if (interaction.customId === "check_modal") {
+        const userId = interaction.fields.getTextInputValue("user_id").trim();
+
+        const pendentes = pendings[userId] || 0;
+
+        const resultEmbed = new EmbedBuilder()
+          .setTitle("Consulta de Cachaços Pendentes")
+          .setColor(PUBLIC_EMBED_COLOR)
+          .addFields(
+            { name: "Usuário", value: `<@${userId}> (${userId})`, inline: false },
+            { name: "Cachaços Pendentes", value: `**${pendentes}**`, inline: false }
+          )
+          .setFooter({ text: `Consulta feita por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
+          .setTimestamp();
+
+        await interaction.reply({ embeds: [resultEmbed], ephemeral: true });
+        return;
       }
     }
 
