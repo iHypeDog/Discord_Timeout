@@ -18,11 +18,12 @@ import config from "./config.json" with { type: "json" };
 const { 
   reportChannelId, 
   godRoleId = "1421249335877832816", 
-  logsChannelId = "1431347167997726730" 
+  logsChannelId = "1431347167997726730",
+  elencoChannelId = "123456789012345678" // Adicione o ID real do canal de elenco aqui
 } = config;
 
 // Cor padrão para todas as embeds públicas do bot
-const PUBLIC_EMBED_COLOR = 0x40ff73; // #40ff73
+const PUBLIC_EMBED_COLOR = 0x014e5c; // #014e5c
 
 // --- ARMAZENAMENTO DE CACHAÇOS PENDENTES ---
 const pendingsFile = "./pendings.json";
@@ -38,7 +39,7 @@ function savePendings() {
 
 // --- DISCORD CLIENT ---
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds],
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 
 // --- EXPRESS SERVER ---
@@ -53,6 +54,41 @@ app.listen(PORT, () => console.log(`🌐 Servidor HTTP ativo na porta ${PORT}`))
 client.once(Events.ClientReady, () => {
   console.log(`🤖 Bot ligado como ${client.user.tag}`);
 });
+
+// --- VARIÁVEIS PARA ELENCO ---
+let elencoInterval = null;
+let elencoMessage = null;
+
+// --- FUNÇÃO PARA ATUALIZAR ELENCO ---
+async function updateElenco() {
+  try {
+    const guild = client.guilds.cache.first(); // Assumindo que o bot está em apenas um servidor
+    if (!guild) return console.error("Guild não encontrada");
+
+    await guild.members.fetch();
+
+    const roles = guild.roles.cache
+      .filter(role => role.name !== "@everyone")
+      .sort((a, b) => b.position - a.position);
+
+    let messageContent = "";
+    for (const role of roles.values()) {
+      const membersList = role.members.map(m => m.user.tag).join(", ") || "Nenhum";
+      messageContent += `**${role.name} (${role.members.size})**\n${membersList}\n\n`;
+    }
+
+    const channel = guild.channels.cache.get(elencoChannelId);
+    if (!channel) return console.error("Canal de elenco não encontrado");
+
+    if (!elencoMessage) {
+      elencoMessage = await channel.send(messageContent);
+    } else {
+      await elencoMessage.edit(messageContent);
+    }
+  } catch (err) {
+    console.error("Erro ao atualizar elenco:", err);
+  }
+}
 
 // --- INTERACTIONS ---
 client.on(Events.InteractionCreate, async interaction => {
@@ -79,7 +115,7 @@ client.on(Events.InteractionCreate, async interaction => {
       const corInput = new TextInputBuilder()
         .setCustomId("cor")
         .setLabel("Cor em hex (ex: #ff0000)")
-        .setPlaceholder("#40ff73")
+        .setPlaceholder("#014e5c")
         .setStyle(TextInputStyle.Short)
         .setMaxLength(7)
         .setRequired(false);
@@ -140,6 +176,22 @@ client.on(Events.InteractionCreate, async interaction => {
       return;
     }
 
+    // --- Comando /elenco ---
+    if (interaction.isChatInputCommand() && interaction.commandName === "elenco") {
+      if (!interaction.member.roles.cache.has(godRoleId)) {
+        return await interaction.reply({ content: "❌ Você não tem permissão para usar este comando.", ephemeral: true });
+      }
+
+      if (!elencoInterval) {
+        await updateElenco();
+        elencoInterval = setInterval(updateElenco, 600000); // 10 minutos
+        await interaction.reply({ content: "✅ Atualização do elenco iniciada! Atualiza a cada 10 minutos.", ephemeral: true });
+      } else {
+        await interaction.reply({ content: "ℹ️ A atualização do elenco já está ativa.", ephemeral: true });
+      }
+      return;
+    }
+
     // --- Botões ---
     if (interaction.isButton()) {
       if (!interaction.member.roles.cache.has(godRoleId)) {
@@ -169,6 +221,12 @@ client.on(Events.InteractionCreate, async interaction => {
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
 
+        const forcaInput = new TextInputBuilder()
+          .setCustomId("forca")
+          .setLabel("Força")
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true);
+
         const clipInput = new TextInputBuilder()
           .setCustomId("clip")
           .setLabel("URL do Clipe (opcional)")
@@ -179,6 +237,7 @@ client.on(Events.InteractionCreate, async interaction => {
           new ActionRowBuilder().addComponents(userIdInput),
           new ActionRowBuilder().addComponents(regrasInput),
           new ActionRowBuilder().addComponents(quantidadeInput),
+          new ActionRowBuilder().addComponents(forcaInput),
           new ActionRowBuilder().addComponents(clipInput)
         );
 
@@ -234,7 +293,7 @@ client.on(Events.InteractionCreate, async interaction => {
       if (interaction.customId === "aviso_modal") {
         const titulo = interaction.fields.getTextInputValue("titulo");
         const descricao = interaction.fields.getTextInputValue("descricao") || null;
-        const corHex = interaction.fields.getTextInputValue("cor") || "#40ff73";
+        const corHex = interaction.fields.getTextInputValue("cor") || "#014e5c";
         const imagem = interaction.fields.getTextInputValue("imagem") || null;
         const thumbnail = interaction.fields.getTextInputValue("thumbnail") || null;
 
@@ -265,6 +324,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const userId = interaction.fields.getTextInputValue("user_id").trim();
         const regras = interaction.fields.getTextInputValue("regras");
         const quantStr = interaction.fields.getTextInputValue("quantidade");
+        const forca = interaction.fields.getTextInputValue("forca");
         const clip = interaction.fields.getTextInputValue("clip") || "Nenhum";
 
         const quantidade = parseInt(quantStr);
@@ -277,7 +337,7 @@ client.on(Events.InteractionCreate, async interaction => {
         const total = pendings[userId];
         savePendings();
 
-        // Embed para logs (público no canal de logs) → cor #40ff73
+        // Embed para logs (público no canal de logs) → cor oficial
         const logEmbed = new EmbedBuilder()
           .setTitle("Cachaços Pendentes Adicionados")
           .setColor(PUBLIC_EMBED_COLOR)
@@ -286,6 +346,7 @@ client.on(Events.InteractionCreate, async interaction => {
             { name: "Quantidade Adicionada", value: quantidade.toString(), inline: true },
             { name: "Total Pendentes", value: total.toString(), inline: true },
             { name: "Regras Descumpridas", value: regras },
+            { name: "Força", value: forca },
             { name: "Clipe", value: clip === "Nenhum" ? "Nenhum" : clip }
           )
           .setFooter({ text: `Ação por ${interaction.user.tag}`, iconURL: interaction.user.displayAvatarURL() })
@@ -299,6 +360,7 @@ client.on(Events.InteractionCreate, async interaction => {
             { name: "Quantidade", value: quantidade.toString(), inline: true },
             { name: "Total Pendentes", value: total.toString(), inline: true },
             { name: "Motivo", value: regras },
+            { name: "Força", value: forca },
             { name: "Clipe", value: clip === "Nenhum" ? "Nenhum" : clip }
           )
           .setFooter({ text: "Ação registrada pelos Gods" })
@@ -337,7 +399,7 @@ client.on(Events.InteractionCreate, async interaction => {
         if (total <= 0) delete pendings[userId];
         savePendings();
 
-        // Embed para logs (público) → cor #40ff73
+        // Embed para logs (público) → cor oficial
         const logEmbed = new EmbedBuilder()
           .setTitle("Cachaços Pendentes Removidos")
           .setColor(PUBLIC_EMBED_COLOR)

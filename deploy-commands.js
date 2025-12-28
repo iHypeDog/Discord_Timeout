@@ -7,7 +7,10 @@ const commands = [
     .setDescription("Cria um anúncio personalizado com embed através de um formulário"),
   new SlashCommandBuilder()
     .setName("cachacos")
-    .setDescription("Gerenciar cachaços pendentes (apenas para gods)")
+    .setDescription("Gerenciar cachaços pendentes (apenas para gods)"),
+  new SlashCommandBuilder()
+    .setName("elenco")
+    .setDescription("Inicia a atualização da lista de membros por cargo no canal de elenco (apenas para gods)")
 ].map(cmd => cmd.toJSON());
 
 const rest = new REST({ version: "10" }).setToken(process.env.TOKEN);
